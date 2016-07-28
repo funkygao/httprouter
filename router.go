@@ -78,6 +78,7 @@ package httprouter
 
 import (
 	"net/http"
+	"strings"
 )
 
 // Handle is a function that can be registered to a route to handle HTTP
@@ -142,6 +143,9 @@ type Router struct {
 	// Custom OPTIONS handlers take priority over automatic replies.
 	HandleOPTIONS bool
 
+	// If enabled, the router automatically replies to CORS preflight requests.
+	HandleCORSPreflight bool
+
 	// Configurable http.Handler which is called when no matching route is
 	// found. If it is not set, http.NotFound is used.
 	NotFound http.Handler
@@ -172,6 +176,7 @@ func New() *Router {
 		RedirectFixedPath:      true,
 		HandleMethodNotAllowed: true,
 		HandleOPTIONS:          true,
+		HandleCORSPreflight:    true,
 	}
 }
 
@@ -381,6 +386,25 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		if r.HandleOPTIONS {
 			if allow := r.allowed(path, req.Method); len(allow) > 0 {
 				w.Header().Set("Allow", allow)
+
+				if r.HandleCORSPreflight {
+					w.Header().Set("Vary", "Origin")
+
+					if origin := req.Header.Get("Origin"); origin != "" {
+						// preflight request
+						reqMethod := req.Header.Get("Access-Control-Request-Method")
+						if reqMethod == "" || !strings.Contains(allow, reqMethod) {
+							// method not allowed
+							return
+						}
+
+						w.Header().Set("Access-Control-Allow-Origin", origin)
+						if headers := req.Header.Get("Access-Control-Request-Headers"); headers != "" {
+							w.Header().Set("Access-Control-Allow-Headers", headers)
+						}
+						// Access-Control-Max-Age ignored on purpose
+					}
+				}
 				return
 			}
 		}
